@@ -13,16 +13,16 @@ win:
     - target: nsis
       arch:
         - x64
-  icon: build/icon.ico
+  icon: icon.ico
   signAndEditExecutable: false
   artifactName: ${productName}-Setup-${version}.${ext}
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
-  installerIcon: build/icon.ico
-  uninstallerIcon: build/icon.ico
-  installerHeaderIcon: build/icon.ico
+  installerIcon: icon.ico
+  uninstallerIcon: icon.ico
+  installerHeaderIcon: icon.ico
   artifactName: ${productName}-Setup-${version}.${ext}
 asar: true
 asarUnpack:
