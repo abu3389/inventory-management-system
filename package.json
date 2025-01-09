@@ -1,7 +1,7 @@
 {
   "name": "inventory-management-system",
   "version": "1.0.0",
-  "description": "通用商品库存管理系统",
+  "description": "通用商品库存管理",
   "main": "src/main/index.js",
   "scripts": {
     "dev": "vite",
@@ -34,14 +34,15 @@
   },
   "build": {
     "appId": "com.inventory.app",
-    "productName": "库存管理系统",
+    "productName": "库存管理",
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
       "src/**/*",
-      "package.json"
+      "package.json",
+      "node_modules/sqlite3/**/*"
     ],
     "win": {
       "target": [
@@ -64,7 +65,10 @@
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "asar": true,
-    "asarUnpack": ["**/*.node"],
+    "asarUnpack": [
+      "**/*.node",
+      "node_modules/sqlite3/**/*"
+    ],
     "npmRebuild": false
   }
 }
