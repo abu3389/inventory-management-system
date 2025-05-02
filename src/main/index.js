@@ -1,4 +1,4 @@
-const { app, ipcMain, BrowserWindow, dialog } = require("electron");
+const { app, ipcMain, BrowserWindow, dialog, protocol } = require("electron");
 const { Op } = require("sequelize");
 const fs = require('fs');
 const path = require('path');
@@ -14,6 +14,7 @@ const Specification = require("../models/Specification");
 const Sku = require("../models/Sku");
 const SkuSpecification = require("../models/SkuSpecification");
 const SkuStock = require("../models/SkuStock");
+const SkuImage = require("../models/SkuImage");
 
 // 等待数据库初始化完成
 async function initDatabase() {
@@ -30,6 +31,7 @@ async function initDatabase() {
     // 强制重新创建 SKU 相关的表（按照依赖顺序）
     await SkuStock.sync({ force: false });
     await SkuSpecification.sync({ force: false });
+    await SkuImage.sync({ force: false });
     await Sku.sync({ force: false });
     await Specification.sync({ force: false });
 
@@ -63,6 +65,10 @@ async function initDatabase() {
     
     Sku.hasOne(SkuStock, { foreignKey: 'skuId', as: 'stock' });
     SkuStock.belongsTo(Sku, { foreignKey: 'skuId', as: 'sku' });
+    
+    // SkuImage 关联
+    Sku.hasMany(SkuImage, { foreignKey: 'skuId', as: 'images' });
+    SkuImage.belongsTo(Sku, { foreignKey: 'skuId', as: 'sku' });
 
     console.log('数据库同步完成');
   } catch (error) {
@@ -146,7 +152,7 @@ function registerIpcHandlers() {
 
         console.log("创建的用户:", user.toJSON());
 
-        // 获取含角��信息的整用户信息
+        // 获取含角色信息的整用户信息
         const userWithRole = await User.findOne({
           where: { id: user.id },
           include: [
@@ -419,7 +425,7 @@ function registerIpcHandlers() {
     }
   });
 
-  // ���置用户密码处理器
+  // 重置用户密码处理器
   ipcMain.handle("auth:resetUserPassword", async (event, { userId, newPassword }) => {
     try {
       const user = await User.findByPk(userId);
@@ -639,7 +645,7 @@ function registerIpcHandlers() {
         }
       });
       if (existingIndustry) {
-        return { success: false, error: "同级行业下���存在相同名称的行业" };
+        return { success: false, error: "同级行业下已存在相同名称的行业" };
       }
 
       // 计算层级和路径
@@ -748,7 +754,7 @@ function registerIpcHandlers() {
         where: { parentId: industryId },
       });
       if (childrenCount > 0) {
-        return { success: false, error: "该行业��还有子行业，先删除子行业" };
+        return { success: false, error: "该行业还有子行业，先删除子行业" };
       }
 
       // 检查是否存关联的品牌
@@ -1081,7 +1087,7 @@ function registerIpcHandlers() {
       await style.update(styleData);
       return { success: true, style: style.toJSON() };
     } catch (error) {
-      console.error("更新款式��类失败:", error);
+      console.error("更新款式分类失败:", error);
       return { success: false, error: "更新款式分类失败" };
     }
   });
@@ -1562,7 +1568,7 @@ function registerIpcHandlers() {
       };
     } catch (error) {
       console.error("分页获取SKU列表失败:", error);
-      return { success: false, error: "获取SKU列���失败" };
+      return { success: false, error: "获取SKU列表失败" };
     }
   });
 
@@ -1916,58 +1922,348 @@ function registerIpcHandlers() {
       return { success: false, error: error.message };
     }
   });
-}
 
-ipcMain.on("switch-to-login-window", (event, shouldCenter = true) => {
-  const win = BrowserWindow.getFocusedWindow();
-  if (win) {
-    win.setSize(400, 520);
-    if (shouldCenter) {
-      win.center();
+  // 打开文件选择对话框
+  ipcMain.handle('dialog:openFile', async (event, options) => {
+    return dialog.showOpenDialog(options);
+  });
+
+  // SKU 图片上传
+  ipcMain.handle('sku:uploadImages', async (event, { filePaths, styleCode, skuCode, existingCount = 0 }) => {
+    try {
+      // 判断参数
+      if (!filePaths || filePaths.length === 0 || !styleCode || !skuCode) {
+        return { success: false, error: '参数不完整' };
+      }
+
+      // 获取 SKU 信息
+      const sku = await Sku.findOne({
+        where: { 
+          styleCode,
+          code: skuCode
+        }
+      });
+
+      if (!sku) {
+        return { success: false, error: '未找到对应的 SKU 信息' };
+      }
+
+      // 图片保存目录
+      const userDataPath = app.getPath('userData');
+      const imagesDir = path.join(userDataPath, 'images');
+      const styleDir = path.join(imagesDir, styleCode);
+      const skuDir = path.join(styleDir, skuCode);
+
+      // 确保目录存在
+      fs.mkdirSync(imagesDir, { recursive: true });
+      fs.mkdirSync(styleDir, { recursive: true });
+      fs.mkdirSync(skuDir, { recursive: true });
+
+      const uploadedImages = [];
+      const imageRecords = [];
+
+      // 处理每个文件
+      for (let i = 0; i < filePaths.length; i++) {
+        const filePath = filePaths[i];
+        const fileExt = path.extname(filePath);
+        const order = existingCount + i + 1;
+
+        // 生成文件名: 款号-SKU编号-序号.扩展名
+        const fileName = `${styleCode}-${skuCode}-${order}${fileExt}`;
+        const destPath = path.join(skuDir, fileName);
+
+        // 复制文件
+        fs.copyFileSync(filePath, destPath);
+
+        // 读取图片为base64
+        let base64Url = null;
+        try {
+          const fileData = fs.readFileSync(destPath);
+          const mimeType = fileExt.toLowerCase() === '.png' ? 'image/png' : 
+                          (fileExt.toLowerCase() === '.gif' ? 'image/gif' : 'image/jpeg');
+          base64Url = `data:${mimeType};base64,${fileData.toString('base64')}`;
+        } catch (err) {
+          console.error('读取图片文件失败:', err);
+        }
+
+        // 创建图片记录
+        const imageRecord = await SkuImage.create({
+          skuId: sku.id,
+          styleCode,
+          skuCode,
+          fileName,
+          filePath: destPath,
+          order
+        });
+
+        // 构建返回的图片信息
+        uploadedImages.push({
+          id: imageRecord.id,
+          fileName,
+          filePath: destPath,
+          url: `file:///${destPath.replace(/\\/g, '/')}`,
+          base64Url: base64Url,
+          order
+        });
+
+        imageRecords.push(imageRecord);
+      }
+
+      return { 
+        success: true, 
+        images: uploadedImages 
+      };
+    } catch (error) {
+      console.error('上传图片失败:', error);
+      return { success: false, error: '上传图片失败' };
     }
-  }
-});
+  });
 
-ipcMain.on("switch-to-main-window", (event, shouldCenter = true) => {
-  const win = BrowserWindow.getFocusedWindow();
-  if (win) {
-    win.setSize(1200, 800);
-    if (shouldCenter) {
-      win.center();
+  // 获取 SKU 图片
+  ipcMain.handle('sku:getImages', async (event, { styleCode, skuCode }) => {
+    try {
+      if (!styleCode || !skuCode) {
+        return { success: false, error: '参数不完整' };
+      }
+
+      const images = await SkuImage.findAll({
+        where: {
+          styleCode,
+          skuCode
+        },
+        order: [['order', 'ASC']]
+      });
+
+      // 转换为包含 URL 的对象
+      const imageList = [];
+      
+      for (const img of images) {
+        // 修正文件路径，确保使用正斜杠
+        const normalizedPath = img.filePath.replace(/\\/g, '/');
+        const imageData = {
+          id: img.id,
+          fileName: img.fileName,
+          filePath: img.filePath,
+          // 确保URL格式正确
+          url: `file:///${normalizedPath}`,
+          order: img.order
+        };
+        
+        // 如果文件存在，尝试读取为base64
+        if (fs.existsSync(img.filePath)) {
+          try {
+            const fileData = fs.readFileSync(img.filePath);
+            const fileExt = path.extname(img.filePath).toLowerCase().substring(1);
+            let mimeType = 'image/jpeg';
+            
+            if (fileExt === 'png') {
+              mimeType = 'image/png';
+            } else if (fileExt === 'gif') {
+              mimeType = 'image/gif';
+            }
+            
+            imageData.base64Url = `data:${mimeType};base64,${fileData.toString('base64')}`;
+          } catch (err) {
+            console.error('读取图片文件失败:', err);
+            // 如果读取失败，保留原始URL
+          }
+        }
+        
+        imageList.push(imageData);
+      }
+
+      return { success: true, images: imageList };
+    } catch (error) {
+      console.error('获取 SKU 图片失败:', error);
+      return { success: false, error: '获取 SKU 图片失败' };
     }
-  }
-});
+  });
 
-// 窗口控制事件理
-ipcMain.on("window-minimize", () => {
-  const win = BrowserWindow.getFocusedWindow();
-  if (win) {
-    win.minimize();
-  }
-});
+  // 删除 SKU 图片
+  ipcMain.handle('sku:deleteImage', async (event, { imageId, filePath }) => {
+    try {
+      if (!imageId) {
+        return { success: false, error: '参数不完整' };
+      }
 
-ipcMain.on("window-maximize", () => {
-  const win = BrowserWindow.getFocusedWindow();
-  if (win) {
-    if (win.isMaximized()) {
-      win.restore();
-    } else {
-      win.maximize();
+      // 查找图片记录
+      const image = await SkuImage.findByPk(imageId);
+
+      if (!image) {
+        return { success: false, error: '未找到图片记录' };
+      }
+
+      // 删除文件
+      if (fs.existsSync(image.filePath)) {
+        fs.unlinkSync(image.filePath);
+      }
+
+      // 删除数据库记录
+      await image.destroy();
+
+      return { success: true };
+    } catch (error) {
+      console.error('删除 SKU 图片失败:', error);
+      return { success: false, error: '删除 SKU 图片失败' };
     }
-  }
-});
+  });
 
-ipcMain.on("window-close", () => {
-  const win = BrowserWindow.getFocusedWindow();
-  if (win) {
-    win.close();
-  }
-});
+  // 批量保存 SKU 图片数据
+  ipcMain.handle('sku:saveBatchImages', async (event, { skuId, images }) => {
+    try {
+      if (!skuId || !images || !Array.isArray(images)) {
+        return { success: false, error: '参数不完整' };
+      }
+
+      const sku = await Sku.findByPk(skuId);
+      if (!sku) {
+        return { success: false, error: '未找到对应的 SKU' };
+      }
+
+      const t = await db.transaction();
+
+      try {
+        // 删除该 SKU 现有的所有图片记录
+        await SkuImage.destroy({
+          where: { skuId },
+          transaction: t
+        });
+
+        // 批量创建新的图片记录
+        if (images.length > 0) {
+          await SkuImage.bulkCreate(
+            images.map((img, index) => ({
+              skuId,
+              styleCode: sku.styleCode,
+              skuCode: sku.code,
+              fileName: img.fileName,
+              filePath: img.filePath,
+              order: index + 1
+            })),
+            { transaction: t }
+          );
+        }
+
+        await t.commit();
+        return { success: true };
+      } catch (error) {
+        await t.rollback();
+        throw error;
+      }
+    } catch (error) {
+      console.error('批量保存 SKU 图片失败:', error);
+      return { success: false, error: '批量保存 SKU 图片失败' };
+    }
+  });
+
+  // 窗口控制事件
+  ipcMain.on("switch-to-login-window", (event, shouldCenter = true) => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (win) {
+      win.setSize(400, 520);
+      if (shouldCenter) {
+        win.center();
+      }
+    }
+  });
+
+  ipcMain.on("switch-to-main-window", (event, shouldCenter = true) => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (win) {
+      win.setSize(1200, 800);
+      if (shouldCenter) {
+        win.center();
+      }
+    }
+  });
+
+  // 窗口控制事件处理
+  ipcMain.on("window-minimize", () => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (win) {
+      win.minimize();
+    }
+  });
+
+  ipcMain.on("window-maximize", () => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (win) {
+      if (win.isMaximized()) {
+        win.restore();
+      } else {
+        win.maximize();
+      }
+    }
+  });
+
+  ipcMain.on("window-close", () => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (win) {
+      win.close();
+    }
+  });
+
+  // 检查用户认证状态
+  ipcMain.handle("app:checkAuth", async (event) => {
+    try {
+      // 检查本地存储中是否有用户信息
+      const win = BrowserWindow.getFocusedWindow();
+      if (!win) return { isAuthenticated: false };
+      
+      const userData = win.webContents.session.getStorageData;
+      return { isAuthenticated: !!userData };
+    } catch (error) {
+      console.error("验证用户状态失败:", error);
+      return { isAuthenticated: false };
+    }
+  });
+
+  // 注册图片读取处理程序
+  ipcMain.handle('file:readImage', async (event, { filePath }) => {
+    try {
+      if (!filePath || !fs.existsSync(filePath)) {
+        return { success: false, error: '文件不存在' };
+      }
+      
+      // 读取文件并转换为base64
+      const fileData = fs.readFileSync(filePath);
+      const fileExt = path.extname(filePath).toLowerCase().substring(1);
+      let mimeType = 'image/jpeg';
+      
+      if (fileExt === 'png') {
+        mimeType = 'image/png';
+      } else if (fileExt === 'gif') {
+        mimeType = 'image/gif';
+      }
+      
+      const base64Data = `data:${mimeType};base64,${fileData.toString('base64')}`;
+      
+      return { 
+        success: true, 
+        data: base64Data 
+      };
+    } catch (error) {
+      console.error('读取图片文件失败:', error);
+      return { success: false, error: '读取图片文件失败' };
+    }
+  });
+}  // 这个括号是关闭 registerIpcHandlers 函数的
 
 app.whenReady().then(async () => {
   try {
     await initDatabase();
     registerIpcHandlers();
+    
+    // 注册file协议,允许访问本地文件
+    protocol.registerFileProtocol('file', (request, callback) => {
+      const url = request.url.replace('file:///', '');
+      try {
+        return callback(decodeURIComponent(url));
+      } catch (error) {
+        console.error('Protocol handler error:', error);
+      }
+    });
+
     const win = new BrowserWindow({
       width: 400,
       height: 520,
@@ -1976,6 +2272,7 @@ app.whenReady().then(async () => {
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
+        webSecurity: false, // 允许加载本地资源
       },
     });
 
@@ -1989,18 +2286,6 @@ app.whenReady().then(async () => {
       // 生产：加载打包后的文件
       win.loadFile("dist/index.html", { hash: "/login" });
     }
-
-    // 监渲染进程准备就绪的事件
-    ipcMain.handle("app:checkAuth", async () => {
-      try {
-        // 检查本地存储中是否在用户信息
-        const userData = win.webContents.session.getStorageData;
-        return { isAuthenticated: !!userData };
-      } catch (error) {
-        console.error("验证用户状态失败:", error);
-        return { isAuthenticated: false };
-      }
-    });
   } catch (error) {
     console.error("应用程序初始化失败:", error);
     app.quit();

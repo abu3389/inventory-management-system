@@ -34,7 +34,7 @@
   },
   "build": {
     "appId": "com.inventory.app",
-    "productName": "库存管理",
+    "productName": "InventoryManager",
     "directories": {
       "output": "release"
     },
@@ -42,6 +42,7 @@
       "dist/**/*",
       "src/**/*",
       "package.json",
+      "icon.ico",
       "node_modules/sqlite3/**/*"
     ],
     "win": {
@@ -52,8 +53,10 @@
         }
       ],
       "icon": "icon.ico",
-      "signAndEditExecutable": false,
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "signAndEditExecutable": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "executableName": "InventoryManager",
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "nsis": {
       "oneClick": false,
@@ -62,8 +65,24 @@
       "installerIcon": "icon.ico",
       "uninstallerIcon": "icon.ico",
       "installerHeaderIcon": "icon.ico",
-      "artifactName": "${productName}-Setup-${version}.${ext}"
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "shortcutName": "库存管理系统",
+      "uninstallDisplayName": "库存管理系统 v${version}",
+      "perMachine": true,
+      "deleteAppDataOnUninstall": false,
+      "displayLanguageSelector": true,
+      "include": "build/installer.nsh",
+      "allowElevation": true,
+      "differentialPackage": true,
+      "runAfterFinish": true,
+      "warningsAsErrors": false
     },
+    "extraResources": [
+      {
+        "from": "icon.ico",
+        "to": "app.ico"
+      }
+    ],
     "asar": true,
     "asarUnpack": [
       "**/*.node",

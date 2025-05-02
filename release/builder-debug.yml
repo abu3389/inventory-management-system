@@ -6,6 +6,8 @@ x64:
     - dist/**/*
     - src/**/*
     - package.json
+    - icon.ico
+    - node_modules/sqlite3/**/*
     - '!**/*.{iml,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,suo,xproj,cc,d.ts,mk,a,o,forge-meta,pdb}'
     - '!**/._*'
     - '!**/electron-builder.{yaml,yml,json,json5,toml,ts}'
@@ -18,10 +20,12 @@ x64:
     - dist/**/*
     - src/**/*
     - package.json
+    - icon.ico
+    - node_modules/sqlite3/**/*
 nsis:
   script: |-
-    !include "C:\Users\Administrator\Desktop\币圈监控\Electron\node_modules\app-builder-lib\templates\nsis\include\StdUtils.nsh"
-    !addincludedir "C:\Users\Administrator\Desktop\币圈监控\Electron\node_modules\app-builder-lib\templates\nsis\include"
+    !include "D:\code\通用库存管理\node_modules\app-builder-lib\templates\nsis\include\StdUtils.nsh"
+    !addincludedir "D:\code\通用库存管理\node_modules\app-builder-lib\templates\nsis\include"
     !macro _isUpdated _a _b _t _f
       ${StdUtils.TestParameter} $R9 "updated"
       StrCmp "$R9" "true" `${_t}` `${_f}`
@@ -93,8 +97,10 @@ nsis:
       !insertmacro MUI_LANGUAGE "Vietnamese"
     !macroend
 
-    !include "C:\Users\ADMINI~1\AppData\Local\Temp\t-D9p4ii\0-messages.nsh"
-    !include "C:\Users\ADMINI~1\AppData\Local\Temp\t-D9p4ii\1-messages.nsh"
+    !addincludedir "D:\code\通用库存管理\build"
+    !include "D:\code\通用库存管理\build\installer.nsh"
+    !include "C:\Users\ADMINI~1\AppData\Local\Temp\t-jv6XcI\0-messages.nsh"
+    !include "C:\Users\ADMINI~1\AppData\Local\Temp\t-jv6XcI\1-messages.nsh"
     !addplugindir /x86-unicode "C:\Users\Administrator\AppData\Local\electron-builder\Cache\nsis\nsis-resources-3.4.1\plugins\x86-unicode"
 
     Var newStartMenuLink

@@ -1,0 +1,8 @@
+version: 1.0.0
+files:
+  - url: InventoryManager-Setup-1.0.0.exe
+    sha512: 9vmiBPLpAGyqnqQhv98JcN3CubvEO3Grutq7GHaGQ1JyWuk0hgwTgvSDnsTn+ftKnV5O7sQJseIGyOiW+zcPtg==
+    size: 90688410
+path: InventoryManager-Setup-1.0.0.exe
+sha512: 9vmiBPLpAGyqnqQhv98JcN3CubvEO3Grutq7GHaGQ1JyWuk0hgwTgvSDnsTn+ftKnV5O7sQJseIGyOiW+zcPtg==
+releaseDate: '2025-05-02T10:41:14.307Z'

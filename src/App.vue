@@ -1,5 +1,5 @@
 <template>
-  <div class="app">
+  <div class="app" v-if="appReady">
     <router-view v-slot="{ Component }">
       <template v-if="!isLoginPage">
         <div class="app-container">
@@ -24,17 +24,24 @@
       </template>
     </router-view>
   </div>
+  <div v-else class="loading-container">
+    <!-- 可以添加一个加载指示器，但不会显示后台页面 -->
+  </div>
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, ref, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from './stores/auth'
 import TitleBar from './components/TitleBar.vue'
 import SideMenu from './components/SideMenu.vue'
 
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
 const menuRef = ref(null)
 const isCollapse = ref(false)
+const appReady = ref(false)
 
 const isLoginPage = computed(() => route.path === '/login')
 
@@ -56,6 +63,14 @@ watch(
     }
   }
 )
+
+// 应用加载完成后设置ready状态
+onMounted(() => {
+  // 短暂延迟确保路由已经准备好
+  setTimeout(() => {
+    appReady.value = true
+  }, 50)
+})
 </script>
 
 <style>
@@ -63,6 +78,15 @@ watch(
   height: 100vh;
   width: 100vw;
   overflow: hidden;
+}
+
+.loading-container {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #f0f2f5;
 }
 
 .app-container {

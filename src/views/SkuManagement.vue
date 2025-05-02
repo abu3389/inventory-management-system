@@ -75,6 +75,7 @@
         row-key="styleCode"
         @select="handleSelect"
         @select-all="handleSelectAll"
+        @expand-change="handleExpandChange"
       >
         <el-table-column 
           type="selection" 
@@ -95,6 +96,15 @@
                 >
                   <template #default="{ row }">
                     {{ row.specifications.find(s => s.specificationId === spec.specificationId)?.value || '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="图片" width="100">
+                  <template #default="{ row }">
+                    <SkuThumbnail 
+                      :style-code="row.styleCode" 
+                      :sku-code="row.code" 
+                      :ref="el => { if(el) skuThumbnailRefs[row.code] = el }"
+                    />
                   </template>
                 </el-table-column>
                 <el-table-column
@@ -313,7 +323,7 @@
                   />
                 </template>
               </el-table-column>
-              <el-table-column label="建议��售单价（元）" min-width="200">
+              <el-table-column label="建议零售单价（元）" min-width="200">
                 <template #header>
                   <div style="display: flex; align-items: center; justify-content: space-between;">
                     <span>建议零售单价（元）</span>
@@ -459,28 +469,56 @@
                   />
                 </template>
               </el-table-column>
-              <el-table-column label="操作" width="100" fixed="right">
+              <el-table-column label="操作" width="220">
                 <template #default="{ row, $index }">
-                  <div class="operation-buttons">
-                    <el-button
-                      type="primary"
-                      link
-                      size="small"
-                      @click="handleCopyCombination($index)"
-                      >复制</el-button
-                    >
-                    <el-button
-                      type="danger"
-                      link
-                      size="small"
-                      @click="handleDeleteCombination($index)"
-                      >删除</el-button
-                    >
-                  </div>
+                  <el-button 
+                    type="primary" 
+                    link 
+                    @click="handleCopyCombination($index)"
+                    title="复制"
+                  >
+                    <el-icon><CopyDocument /></el-icon>
+                  </el-button>
+                  <el-button 
+                    type="danger" 
+                    link 
+                    @click="handleDeleteCombination($index)"
+                    title="删除"
+                  >
+                    <el-icon><Delete /></el-icon>
+                  </el-button>
+                  <el-button 
+                    type="primary" 
+                    link 
+                    @click="handleEditImages($index)"
+                    title="管理图片"
+                  >
+                    <el-icon v-if="hasImages($index)"><PictureRounded /></el-icon>
+                    <el-icon v-else><Picture /></el-icon>
+                  </el-button>
+                  <span v-if="hasImages($index)" class="image-count">({{ getImagesCount($index) }}张)</span>
                 </template>
               </el-table-column>
             </el-table>
           </div>
+          
+          <!-- SKU图片管理对话框 -->
+          <el-dialog
+            v-model="imageDialogVisible"
+            title="SKU图片管理"
+            width="60%"
+            :close-on-click-modal="false"
+            destroy-on-close
+            append-to-body
+          >
+            <SkuImageUploader
+              v-if="currentSku"
+              :style-code="form.styleCode"
+              :sku-code="currentSku.code"
+              v-model="currentSku.images"
+              @change="handleImagesChange"
+            />
+          </el-dialog>
         </el-form>
         <template #footer>
           <span class="dialog-footer">
@@ -501,11 +539,15 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { Plus, Folder } from "@element-plus/icons-vue";
+import { Plus, Folder, Delete, CopyDocument, Picture, PictureRounded } from "@element-plus/icons-vue";
 import { useSkuStore } from "../stores/sku";
+import { useSkuImageStore } from "../stores/skuImage";
+import SkuImageUploader from "../components/SkuImageUploader.vue";
+import SkuThumbnail from "../components/SkuThumbnail.vue";
 const { ipcRenderer } = require("electron");
 
 const skuStore = useSkuStore();
+const skuImageStore = useSkuImageStore();
 const skus = ref([]);
 const specifications = ref([]);
 const loading = ref(false);
@@ -667,8 +709,23 @@ const fetchSkus = async () => {
       } else {
         skuTable.value?.clearSelection();
       }
+
+      // 清空组件引用
+      skuThumbnailRefs.value = {};
+      
+      // 重新展开之前展开的行
+      nextTick(() => {
+        if (expandedRows.value.length > 0) {
+          expandedRows.value.forEach(expandedRow => {
+            const matchedRow = skuList.value.find(r => r.styleCode === expandedRow.styleCode);
+            if (matchedRow && skuTable.value) {
+              skuTable.value.toggleRowExpansion(matchedRow, true);
+            }
+          });
+        }
+      });
     } else {
-      ElMessage.error(result.error || "获取SKU列表失败");
+      ElMessage.error(result.error || "获取SKU数据失败");
     }
   } catch (error) {
     console.error("获取SKU列表失败:", error);
@@ -857,6 +914,7 @@ const handleCopyCombination = (index) => {
     totalCost: original.totalCost,
     quantity: original.quantity,
     unit: original.unit,
+    images: [] // 创建空图片数组，不复制原始图片
   };
   form.value.combinations.push(copy);
 };
@@ -885,7 +943,7 @@ const handleAdd = () => {
   dialogVisible.value = true;
 };
 
-const handleEdit = (row) => {
+const handleEdit = async (row) => {
   dialogType.value = 'edit';
   const firstSku = row.children[0];
   
@@ -939,12 +997,30 @@ const handleEdit = (row) => {
       totalCost: sku.stock?.totalCost || 0,
       quantity: sku.stock?.quantity || 0,
       unit: sku.specifications[0]?.unit || "",
+      images: [] // 初始化空图片数组
     }))
     .sort((a, b) => {
       const numA = parseInt(a.code) || 0;
       const numB = parseInt(b.code) || 0;
       return numA - numB;
     });
+  
+  // 预加载所有SKU的图片
+  const loadSkuImages = async () => {
+    for (const sku of form.value.combinations) {
+      try {
+        const result = await skuImageStore.getImages(form.value.styleCode, sku.code);
+        if (result.success && result.images && result.images.length > 0) {
+          sku.images = result.images;
+        }
+      } catch (error) {
+        console.error('获取SKU图片失败:', error);
+      }
+    }
+  };
+  
+  // 加载图片
+  loadSkuImages();
   
   dialogVisible.value = true;
 };
@@ -979,6 +1055,46 @@ const handleDialogClose = () => {
 const handleCancel = () => {
   dialogVisible.value = false;
 }
+
+// 图片管理相关
+const imageDialogVisible = ref(false);
+const currentSku = ref(null);
+
+// 处理编辑图片
+const handleEditImages = async (index) => {
+  const sku = form.value.combinations[index];
+  if (!sku || !form.value.styleCode) {
+    ElMessage.warning('请先填写款号和SKU编号');
+    return;
+  }
+  
+  // 确保sku对象中有images数组
+  if (!sku.images) {
+    sku.images = [];
+  }
+  
+  // 如果此sku已有skuId但尚未加载图片，则从数据库获取图片
+  if (sku.id && sku.images.length === 0) {
+    try {
+      const result = await skuImageStore.getImages(form.value.styleCode, sku.code);
+      if (result.success && result.images && result.images.length > 0) {
+        sku.images = result.images;
+      }
+    } catch (error) {
+      console.error('获取图片失败:', error);
+    }
+  }
+  
+  currentSku.value = sku;
+  imageDialogVisible.value = true;
+};
+
+// 处理图片变化
+const handleImagesChange = (images) => {
+  if (currentSku.value) {
+    currentSku.value.images = images;
+  }
+};
 
 // 修改表单提交处理函数
 const handleSubmit = async () => {
@@ -1047,9 +1163,44 @@ const handleSubmit = async () => {
     );
 
     if (result.success) {
+      // 保存图片数据
+      const saveImagePromises = [];
+      for (let i = 0; i < form.value.combinations.length; i++) {
+        const combinationData = form.value.combinations[i];
+        const createdSku = result.skus.find(sku => sku.code === combinationData.code);
+        
+        // 如果有图片数据，保存图片关联
+        if (createdSku && combinationData.images) {
+          saveImagePromises.push(
+            skuImageStore.saveBatchImages(createdSku.id, combinationData.images)
+          );
+        }
+      }
+      
+      // 等待所有图片保存完成
+      await Promise.all(saveImagePromises);
+      
       ElMessage.success(dialogType.value === 'edit' ? '更新成功' : '创建成功');
       dialogVisible.value = false;
-      fetchSkus();
+      
+      // 记住当前展开的行
+      const currentExpandedRows = expandedRows.value.slice();
+      
+      // 重新获取最新的SKU数据
+      await fetchSkus();
+      
+      // 在DOM更新后，刷新所有可见缩略图
+      nextTick(() => {
+        // 给一点时间让DOM完全渲染
+        setTimeout(() => {
+          // 遍历所有引用，刷新图片
+          Object.values(skuThumbnailRefs.value).forEach(thumbnailRef => {
+            if (thumbnailRef && typeof thumbnailRef.refreshImages === 'function') {
+              thumbnailRef.refreshImages();
+            }
+          });
+        }, 200);
+      });
     } else {
       ElMessage.error(result.error || (dialogType.value === 'edit' ? '更新失败' : '创建失败'));
     }
@@ -1374,6 +1525,56 @@ const tableConfig = {
 // 添加表格引用
 const skuTable = ref(null);
 
+// 判断SKU是否有图片
+const hasImages = (index) => {
+  const sku = form.value.combinations[index];
+  return sku && sku.images && sku.images.length > 0;
+};
+
+// 添加变量存储SkuThumbnail引用和已展开的行
+const skuThumbnailRefs = ref({});
+const expandedRows = ref([]);
+
+// 添加展开行变化处理函数
+const handleExpandChange = (row, expanded) => {
+  // 保存当前展开的行
+  if (expanded) {
+    // 添加到已展开行列表
+    if (!expandedRows.value.includes(row)) {
+      expandedRows.value.push(row);
+    }
+  } else {
+    // 从已展开行列表移除
+    const index = expandedRows.value.findIndex(r => r.styleCode === row.styleCode);
+    if (index !== -1) {
+      expandedRows.value.splice(index, 1);
+    }
+  }
+  
+  // 如果展开，等待DOM更新后刷新缩略图
+  if (expanded) {
+    nextTick(() => {
+      setTimeout(() => {
+        // 刷新该行所有子SKU的图片
+        if (row.children && row.children.length > 0) {
+          row.children.forEach(sku => {
+            const thumbnailRef = skuThumbnailRefs.value[sku.code];
+            if (thumbnailRef && typeof thumbnailRef.refreshImages === 'function') {
+              thumbnailRef.refreshImages();
+            }
+          });
+        }
+      }, 100);
+    });
+  }
+};
+
+// 添加计算图片数量的函数
+const getImagesCount = (index) => {
+  const sku = form.value.combinations[index];
+  return sku && sku.images ? sku.images.length : 0;
+};
+
 onMounted(async () => {
   await fetchIndustries();
 });
@@ -1507,5 +1708,11 @@ h3 {
 .header-buttons {
   display: flex;
   gap: 10px;
+}
+
+.image-count {
+  font-size: 12px;
+  color: #909399;
+  margin-left: 4px;
 }
 </style> 

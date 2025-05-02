@@ -2,20 +2,24 @@ directories:
   output: release
   buildResources: build
 appId: com.inventory.app
-productName: 库存管理系统
+productName: InventoryManager
 files:
   - filter:
       - dist/**/*
       - src/**/*
       - package.json
+      - icon.ico
+      - node_modules/sqlite3/**/*
 win:
   target:
     - target: nsis
       arch:
         - x64
   icon: icon.ico
-  signAndEditExecutable: false
+  signAndEditExecutable: true
   artifactName: ${productName}-Setup-${version}.${ext}
+  executableName: InventoryManager
+  requestedExecutionLevel: requireAdministrator
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -24,8 +28,22 @@ nsis:
   uninstallerIcon: icon.ico
   installerHeaderIcon: icon.ico
   artifactName: ${productName}-Setup-${version}.${ext}
+  shortcutName: 库存管理系统
+  uninstallDisplayName: 库存管理系统 v${version}
+  perMachine: true
+  deleteAppDataOnUninstall: false
+  displayLanguageSelector: true
+  include: build/installer.nsh
+  allowElevation: true
+  differentialPackage: true
+  runAfterFinish: true
+  warningsAsErrors: false
+extraResources:
+  - from: icon.ico
+    to: app.ico
 asar: true
 asarUnpack:
   - '**/*.node'
+  - node_modules/sqlite3/**/*
 npmRebuild: false
 electronVersion: 25.9.8

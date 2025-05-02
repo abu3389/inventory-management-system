@@ -7,7 +7,7 @@ import 'element-plus/dist/index.css'
 import './styles/main.scss'
 import App from './App.vue'
 import router from './router/router'
-import { setupRouterGuards } from './router/middleware'
+import { setupRouterGuards, getInitialRoute } from './router/middleware'
 import { useAuthStore } from './stores/auth'
 
 export async function initializeApp() {
@@ -23,6 +23,9 @@ export async function initializeApp() {
   // 初始化 auth store
   const authStore = useAuthStore()
   
+  // 在应用启动前检查登录状态
+  let initialAuth = authStore.isAuthenticated
+  
   // 检查初始状态
   const { ipcRenderer } = window.require('electron')
   try {
@@ -31,6 +34,7 @@ export async function initializeApp() {
     if (!dbResult.success) {
       console.error('数据库检查失败')
       authStore.clearAllData()
+      initialAuth = false
     } else if (authStore.isAuthenticated) {
       // 验证用户是否在数据库中存在
       const userResult = await ipcRenderer.invoke('auth:validateUser', { 
@@ -39,11 +43,13 @@ export async function initializeApp() {
       if (!userResult.success) {
         console.log('用户验证失败，清除缓存')
         authStore.clearAllData()
+        initialAuth = false
       }
     }
   } catch (error) {
     console.error('初始化检查失败:', error)
     authStore.clearAllData()
+    initialAuth = false
   }
 
   // 注册所有图标
@@ -57,6 +63,10 @@ export async function initializeApp() {
 
   // 设置路由守卫
   setupRouterGuards(router)
+  
+  // 在应用挂载前，先导航到正确的初始路由
+  const initialRoute = initialAuth ? "/" : "/login"
+  await router.push(initialRoute)
 
   return app
 } 

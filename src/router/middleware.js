@@ -3,12 +3,17 @@ import { ElMessage } from "element-plus";
 
 // 用于标记是否是首次加载
 let isFirstLoad = true;
+// 初始化标志，用于防止闪烁
+let isInitialized = false;
+
+// 获取初始路由，根据登录状态决定显示登录页还是主页
+export function getInitialRoute(authStore) {
+  return authStore.isAuthenticated ? "/" : "/login";
+}
 
 export function setupRouterGuards(router) {
   router.beforeEach(async (to, from, next) => {
     const authStore = useAuthStore();
-    // 检查角色权限
-    const userRole = authStore.user?.role;
     const { ipcRenderer } = window.require("electron");
 
     // 控制窗口大小
@@ -31,9 +36,15 @@ export function setupRouterGuards(router) {
 
     // 未登录时重定向到登录页
     if (!authStore.isAuthenticated) {
-      ElMessage.warning("请先登录");
+      // 如果路由变化是因为直接访问需要登录的页面，不显示警告消息
+      if (from.name) {
+        ElMessage.warning("请先登录");
+      }
       return next("/login");
     }
+
+    // 检查角色权限
+    const userRole = authStore.user?.role;
 
     // 如果是超级管理员（ID为1），拥有所有权限
     if (userRole.id === 1) {
